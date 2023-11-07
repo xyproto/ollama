@@ -300,6 +300,55 @@ func CopyHandler(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func SearchHandler(cmd *cobra.Command, args []string) error {
+	insecure, err := cmd.Flags().GetBool("insecure")
+	if err != nil {
+		return err
+	}
+
+	return search(args[0], insecure)
+}
+
+func search(keywords string, insecure bool) error {
+	client, err := api.ClientFromEnvironment()
+	if err != nil {
+		return err
+	}
+
+	var currentDigest string
+	var bar *progressbar.ProgressBar
+
+	request := api.SearchRequest{Name: model, Insecure: insecure}
+	fn := func(resp api.ProgressResponse) error {
+		if resp.Digest != currentDigest && resp.Digest != "" {
+			currentDigest = resp.Digest
+			bar = progressbar.DefaultBytes(
+				resp.Total,
+				fmt.Sprintf("pulling %s...", resp.Digest[7:19]),
+			)
+
+			bar.Set64(resp.Completed)
+		} else if resp.Digest == currentDigest && resp.Digest != "" {
+			bar.Set64(resp.Completed)
+		} else {
+			currentDigest = ""
+			fmt.Println(resp.Status)
+		}
+
+		return nil
+	}
+
+	if err := client.Search(context.Background(), &request, fn); err != nil {
+		return err
+	}
+
+	if bar != nil && !bar.IsFinished() {
+		return errors.New("unexpected end to search model")
+	}
+
+	return nil
+}
+
 func PullHandler(cmd *cobra.Command, args []string) error {
 	insecure, err := cmd.Flags().GetBool("insecure")
 	if err != nil {
@@ -901,6 +950,16 @@ func NewCLI() *cobra.Command {
 	}
 
 	pullCmd.Flags().Bool("insecure", false, "Use an insecure registry")
+
+	searchCmd := &cobra.Command{
+		Use:     "search KEYWORD",
+		Short:   "Search for a model in the registry",
+		Args:    cobra.ExactArgs(1),
+		PreRunE: checkServerHeartbeat,
+		RunE:    SearchHandler,
+	}
+
+	searchCmd.Flags().Bool("insecure", false, "Use an insecure registry")
 
 	pushCmd := &cobra.Command{
 		Use:     "push MODEL",
