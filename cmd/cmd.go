@@ -781,6 +781,11 @@ func PullHandler(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	all, err := cmd.Flags().GetBool("all")
+	if err != nil {
+		return err
+	}
+
 	client, err := api.ClientFromEnvironment()
 	if err != nil {
 		return err
@@ -821,12 +826,25 @@ func PullHandler(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	request := api.PullRequest{Name: args[0], Insecure: insecure}
-	if err := client.Pull(cmd.Context(), &request, fn); err != nil {
-		return err
+	if all {
+		// Get all model names
+		models, err := client.List(cmd.Context())
+		if err != nil {
+			return err
+		}
+		// Update all models
+		for _, model := range models.Models {
+			request := api.PullRequest{Name: model.Name, Insecure: insecure}
+			if err := client.Pull(cmd.Context(), &request, fn); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
-	return nil
+	// Update the given model
+	request := api.PullRequest{Name: args[0], Insecure: insecure}
+	return client.Pull(cmd.Context(), &request, fn)
 }
 
 type generateContextKey string
